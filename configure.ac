@@ -2918,6 +2918,20 @@ AC_SUBST(MOD_IMPORT_VARIABLE)dnl
 AC_SUBST(MOD_IMPORT_FUNCTION)dnl
 AC_SUBST(EXTRAZSHOBJS)dnl
 
+dnl --- heredoc_helper: Rust static library (PDF -> Markdown on heredoc) ---
+dnl LIBS is computed once (relative to the top srcdir) and force-passed
+dnl down into every subdir's sub-make via MAKEDEFS, so a make-variable
+dnl relative path (e.g. $(sdir_top)) would only be correct in the
+dnl directory it was computed in. Use an absolute path instead.
+AC_CHECK_PROG(CARGO, cargo, cargo)
+if test -n "$CARGO"; then
+  abs_srcdir=`cd "$srcdir" && pwd`
+  LIBS="$LIBS -L$abs_srcdir/rust/heredoc_helper/target/release -lheredoc_helper -ldl -lpthread -lm"
+else
+  AC_MSG_WARN([cargo not found in PATH; heredoc PDF-to-Markdown support (rust/heredoc_helper) will not be built])
+fi
+AC_SUBST(CARGO)dnl
+
 # Generate config.modules.  We look for *.mdd files in first and second
 # level subdirectories.  Any existing line not containing 'auto=y' will be
 # retained, provided the .mdd file itself was found.

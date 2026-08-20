@@ -80,11 +80,22 @@ NDRUNPATH =
 
 EXTRAZSHOBJS = @EXTRAZSHOBJS@
 
-zsh$(EXEEXT): $(@L@IBZSH) $(@L@STMP) $(MAIN_OBJS) zsh.export $(EXTRAZSHOBJS)
+CARGO = @CARGO@
+RUST_HEREDOC_HELPER_LIB = $(sdir_top)/rust/heredoc_helper/target/release/libheredoc_helper.a
+
+.PHONY: rust-heredoc-helper
+rust-heredoc-helper:
+	@if test -n "$(CARGO)"; then \
+	    (cd $(sdir_top)/rust/heredoc_helper && $(CARGO) build --release) || exit 1; \
+	fi
+
+$(RUST_HEREDOC_HELPER_LIB): rust-heredoc-helper
+
+zsh$(EXEEXT): $(@L@IBZSH) $(@L@STMP) $(MAIN_OBJS) zsh.export $(EXTRAZSHOBJS) $(RUST_HEREDOC_HELPER_LIB)
 	rm -f $@
 	$(@L@DRUNPATH) $(LINK) $(MAIN_OBJS) $(EXTRAZSHOBJS) $(@L@LIST) $(ZSH_@E@XPORT) $(@L@IBZSH) $(LIBS)
 
-$(LIBZSH): $(LIBOBJS) $(NSTMP)
+$(LIBZSH): $(LIBOBJS) $(NSTMP) $(RUST_HEREDOC_HELPER_LIB)
 	rm -f $@
 	$(DLLINK) $(LIBOBJS) $(NLIST) $(LIBS)
 

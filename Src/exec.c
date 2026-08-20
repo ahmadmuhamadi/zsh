@@ -30,6 +30,7 @@
 #include "zsh.mdh"
 #include "exec.pro"
 
+
 /* Flags for last argument of addvars */
 
 enum {
@@ -4626,8 +4627,10 @@ closem(int how, int all)
 	}
 }
 
-/* convert here document into a here string */
+/* Implemented in rust/heredoc_helper: converts PATH.pdf to PATH.md */
+extern int rust_convert_pdf_to_markdown(const char *path);
 
+/* convert here document into a here string */
 /**/
 char *
 gethere(char **strp, int typ)
@@ -4651,6 +4654,13 @@ gethere(char **strp, int typ)
 	    str++;
     }
     *strp = str;
+
+    {
+	size_t slen = strlen(str);
+	if (slen > 4 && !strcmp(str + slen - 4, ".pdf"))
+	    rust_convert_pdf_to_markdown(str);
+    }
+
     bptr = buf = zalloc(bsiz = 256);
     for (;;) {
 	t = bptr;
@@ -4690,7 +4700,7 @@ gethere(char **strp, int typ)
 	if (!strcmp(t, str))
 	    break;
 	if (lexstop) {
-	    t = bptr;
+	    t = bptr; 
 	    break;
 	}
 	*bptr++ = '\n';
@@ -4710,6 +4720,7 @@ gethere(char **strp, int typ)
 	}
     }
     return buf;
+	
 }
 
 /* open here string fd */
