@@ -1107,32 +1107,30 @@ F:Checking for a bug in zmodload that affects later tests
  unset -n ref
  typeset -rn ref=RO
  typeset -p ref
- (typeset -n ref=RW)
+ (typeset -n ref=RW 2>&1 && typeset -p ref)
  print status: $? expected: 1
  typeset +r -n ref
  typeset -p ref
  typeset -r +n ref
  typeset -p ref
- (typeset -rn ref)
- print status: $? expected: 1
- typeset +r -n ref=RW	# Assignment occurs after type change,
- typeset -p ref RO	# so RO=RW here.  Potentially confusing.
- typeset -r -n ref=RX	# No type change, so referent changes ...
- typeset -p ref RO	# ... and previous refererent does not.
- typeset +rn ref=RW	# Here ref=RW, again type changed first.
+ (typeset -rn ref 2>&1 && typeset -p ref)
+ print status: $? expected: 0
+ typeset +r -n ref=RW
+ typeset -p ref
+ typeset -r -n ref=RX
+ typeset -p ref
+ typeset +rn ref=RW
  typeset -p ref
 0:add and remove readonly attribute with references
 >typeset -rn ref=RO
-*?*: ref: read-only reference
+>(eval):typeset:4: ref: read-only reference
 >status: 1 expected: 1
 >typeset -n ref=RO
 >typeset -r ref=RO
-*?*: ref: read-only variable
->status: 1 expected: 1
->typeset -n ref=RO
->typeset -g RO=RW
+>typeset -rn ref=RO
+>status: 0 expected: 0
+>typeset -n ref=RW
 >typeset -rn ref=RX
->typeset -g RO=RW
 >typeset ref=RW
 
  () {
@@ -2349,6 +2347,50 @@ F:converting from association/array to string should work here too
 >B:16#FF
 >C:16#FF
 
+ show() { printf "%-13s: %-3s - %-3s - %-3s\n" "$@" }
+ typeset var=aaa
+ typeset -n refU refN="" refS=var
+ show '${refX}'       ${(q!)refU}       ${(q!)refN}       ${(q!)refS}
+ show '${+refX}'      ${(q!)+refU}      ${(q!)+refN}      ${(q!)+refS}
+ show '${refX+1}'     ${(q!)refU+1}     ${(q!)refN+1}     ${(q!)refS+1}
+ show '${refX:+1}'    ${(q!)refU:+1}    ${(q!)refN:+1}    ${(q!)refS:+1}
+ echo
+ show '${refX-bbb}'   ${(q!)refU-bbb}   ${(q!)refN-bbb}   ${(q!)refS-bbb}
+ show '${refX=bbb}'   ${(q!)refU=bbb}   ${(q!)refN=bbb}   ${(q!)refS=bbb}
+ show '${refX}'       ${(q!)refU}       ${(q!)refN}       ${(q!)refS}
+ show '${var}'        ${var}
+ echo
+ unset -n refU; typeset -n refU refN="" refS=var
+ show '${refX:-ccc}'  ${(q!)refU:-ccc}  ${(q!)refN:-ccc}  ${(q!)refS:-ccc}
+ show '${refX:=ccc}'  ${(q!)refU:=ccc}  ${(q!)refN:=ccc}  ${(q!)refS:=ccc}
+ show '${refX}'       ${(q!)refU}       ${(q!)refN}       ${(q!)refS}
+ show '${var}'        ${var}
+ echo
+ unset -n refU; typeset -n refU refN="" refS=var
+ show '${refX::=ddd}' ${(q!)refU::=ddd} ${(q!)refN::=ddd} ${(q!)refS::=ddd}
+ show '${refX}'       ${(q!)refU}       ${(q!)refN}       ${(q!)refS}
+ show '${var}'        ${var}
+ unfunction show
+0:reference itself is examined in substitutions with the ! flag
+>${refX}      : ''  - ''  - var
+>${+refX}     : 0   - 1   - 1  
+>${refX+1}    : ''  - 1   - 1  
+>${refX:+1}   : ''  - ''  - 1  
+>
+>${refX-bbb}  : bbb - ''  - var
+>${refX=bbb}  : bbb - ''  - var
+>${refX}      : bbb - ''  - var
+>${var}       : aaa -     -    
+>
+>${refX:-ccc} : ccc - ccc - var
+>${refX:=ccc} : ccc - ccc - var
+>${refX}      : ccc - ccc - var
+>${var}       : aaa -     -    
+>
+>${refX::=ddd}: ddd - ddd - ddd
+>${refX}      : ddd - ddd - ddd
+>${var}       : aaa -     -    
+
  typeset -n ref1
  setopt allexport
  ref1=var
@@ -2362,5 +2404,60 @@ F:converting from association/array to string should work here too
  typeset -hn ref_h
  typeset -Hn ref_H
 0:unsusual but legal option combinations
+
+ typeset str0=abc
+ typeset -a arr0=(aa bb cc)
+ typeset -A hsh0=([0]=aa [1]=bb [2]=cc)
+ typeset -n str1=str0 arr1=arr0 hsh1=hsh0
+ typeset -n str2=str1 arr2=arr1 hsh2=hsh1
+ emulate ksh -c '
+   echo "${str0} - ${str1} - ${str2}"
+   echo "${str0[1]} - ${str1[1]} - ${str2[1]}"
+   echo "${str0[1,2]} - ${str1[1,2]} - ${str2[1,2]}"
+   echo "${str0[@]} - ${str1[@]} - ${str2[@]}"
+   echo "${arr0} - ${arr1} - ${arr2}"
+   echo "${arr0[1]} - ${arr1[1]} - ${arr2[1]}"
+   echo "${arr0[1,2]} - ${arr1[1,2]} - ${arr2[1,2]}"
+   echo "${arr0[@]} - ${arr1[@]} - ${arr2[@]}"
+   echo "${hsh0} - ${hsh1} - ${hsh2}"
+   echo "${hsh0[1]} - ${hsh1[1]} - ${hsh2[1]}"
+   echo "${hsh0[@]} - ${hsh1[@]} - ${hsh2[@]}"
+   echo
+   echo "${!str0} - ${!str1} - ${!str2}"
+   echo "${!str0[1]} - ${!str1[1]} - ${!str2[1]}"
+   echo "${!str0[1,2]} - ${!str1[1,2]} - ${!str2[1,2]}"
+   echo "${!str0[@]} - ${!str1[@]} - ${!str2[@]}"
+   echo "${!arr0} - ${!arr1} - ${!arr2}"
+   echo "${!arr0[1]} - ${!arr1[1]} - ${!arr2[1]}"
+   echo "$(exec 2>&1; echo ${!arr0[1,2]}) - $(exec 2>&1; echo ${!arr1[1,2]}) - $(exec 2>&1; echo ${!arr2[1,2]})"
+   echo "${!arr0[@]} - ${!arr1[@]} - ${!arr2[@]}"
+   echo "${!hsh0} - ${!hsh1} - ${!hsh2}"
+   echo "${!hsh0[1]} - ${!hsh1[1]} - ${!hsh2[1]}"
+   echo "${!hsh0[@]} - ${!hsh1[@]} - ${!hsh2[@]}"
+ '
+0:emulation of ksh's bang always dereferences the expanded parameter
+>abc - abc - abc
+>b - b - b
+>bc - bc - bc
+>abc - abc - abc
+>aa - aa - aa
+>bb - bb - bb
+>bb cc - bb cc - bb cc
+>aa bb cc - aa bb cc - aa bb cc
+>aa - aa - aa
+>bb - bb - bb
+>aa bb cc - aa bb cc - aa bb cc
+>
+>abc - abc - abc
+>b - b - b
+>bc - bc - bc
+>abc - abc - abc
+>aa - aa - aa
+>1 - 1 - 1
+>(eval):6: invalid subscript - (eval):6: invalid subscript - (eval):6: invalid subscript
+>aa bb cc - aa bb cc - aa bb cc
+>aa - aa - aa
+>1 - 1 - 1
+>0 1 2 - 0 1 2 - 0 1 2
 
 %clean

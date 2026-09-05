@@ -2118,7 +2118,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int pf_flags,
 	 * handle this with the ^, =, ~ stuff, below.
 	 */
 	if ((c = *s) == '!' && s[1] != Outbrace && EMULATION(EMULATE_KSH)) {
-	    hkeys = SCANPM_WANTKEYS|SCANPM_NONAMEREF;
+	    hkeys = SCANPM_WANTKEYS;
 	    s++;
 	    /* There's a slew of other special bash meanings of parameter
 	     * references that start with "!":
@@ -2394,7 +2394,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int pf_flags,
 		    hkeys = SCANPM_WANTKEYS;
 		    break;
 		case 'v':
-		    if (hvals & ~SCANPM_WANTVALS)
+		    if (hkeys & ~SCANPM_WANTKEYS)
 			goto flagerr;
 		    hvals = SCANPM_WANTVALS;
 		    break;
@@ -3248,6 +3248,8 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int pf_flags,
 	    if (vunset) {
 		char sav = *idend;
 		int l, split_flags;
+		int assign_flags = ASSPM_WARN |
+		    (hkeys & SCANPM_NONAMEREF ? ASSPM_NONAMEREF : 0);
 
 		*idend = '\0';
 		val = dupstring(s);
@@ -3303,7 +3305,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int pf_flags,
 			if (pm)
 			    aval = paramvalarr(pm->gsu.h->getfn(pm), hkeys|hvals);
 		    } else {
-			Param pm = setaparam(idbeg, a);
+			Param pm = assignaparam(idbeg, a, assign_flags);
 			if (pm) {
 			    struct value vbuf = { 0 };
 			    char *p = idbeg;
@@ -3317,7 +3319,7 @@ paramsubst(LinkList l, LinkNode n, char **str, int qt, int pf_flags,
 		    arrasg = 0;
 		} else {
 		    untokenize(val);
-		    Param pm = setsparam(idbeg, ztrdup(val));
+		    Param pm = assignsparam(idbeg, ztrdup(val), assign_flags);
 		    if (pm) {
 			/* this check isn't needed for correctness, but array values
 			 * aren't affected by SUBST flags anyway */

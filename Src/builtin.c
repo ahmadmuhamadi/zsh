@@ -2055,7 +2055,8 @@ typeset_single(char *cname, char *pname, Param pm, int func,
      * POSIXBUILTINS horror: we need to retain the 'readonly' or 'export'
      * flags of an unset parameter.
      */
-    usepm = pm && (!(pm->node.flags & PM_UNSET) || OPT_ISSET(ops, 'p') ||
+    usepm = pm && (!(pm->node.flags & PM_UNSET) ||
+		   (pm->node.flags & PM_DECLARED) || OPT_ISSET(ops, 'p') ||
 		   (isset(POSIXBUILTINS) &&
 		    (pm->node.flags & (PM_READONLY|PM_EXPORTED))));
 
@@ -2104,22 +2105,22 @@ typeset_single(char *cname, char *pname, Param pm, int func,
 	}
 	tc = 1;
 	if (OPT_MINUS(ops,'p'))
-	    usepm = (on & pm->node.flags);
+	    usepm = !!(on & pm->node.flags);
 	else if (OPT_PLUS(ops,'p'))
-	    usepm = (off & pm->node.flags);
+	    usepm = !!(off & pm->node.flags);
 	else
 	    usepm = 0;
     }
     else if (usepm || newspecial != NS_NONE) {
 	int chflags = ((off & pm->node.flags) | (on & ~pm->node.flags)) &
 	    (PM_INTEGER|PM_EFLOAT|PM_FFLOAT|PM_HASHED|
-	     PM_ARRAY|PM_TIED|PM_AUTOLOAD);
+	     PM_ARRAY|PM_NAMEREF|PM_TIED|PM_AUTOLOAD);
 	/* keep the parameter if just switching between floating types */
 	if ((tc = chflags && chflags != (PM_EFLOAT|PM_FFLOAT))) {
 	    if (OPT_MINUS(ops,'p'))
-		usepm = (on & pm->node.flags);
+		usepm = !!(on & pm->node.flags);
 	    else if (OPT_PLUS(ops,'p'))
-		usepm = (off & pm->node.flags);
+		usepm = !!(off & pm->node.flags);
 	    else
 		usepm = 0;
 	}
@@ -2231,6 +2232,7 @@ typeset_single(char *cname, char *pname, Param pm, int func,
      *   ii. we are creating a new local parameter
      */
     if (usepm) {
+	int flags = (on & PM_NAMEREF) ? ASSPM_NONAMEREF : 0;
 	if (OPT_MINUS(ops,'p') && on &&
 	    !((on & pm->node.flags) || ((on & PM_LOCAL) && pm->level)))
 	    return NULL;
@@ -2289,7 +2291,8 @@ typeset_single(char *cname, char *pname, Param pm, int func,
 	/*
 	 * Keep unset if using readonly in POSIX mode unless specified otherwise.
 	 */
-	if ((usepm != 2) && !((on & PM_READONLY) && isset(POSIXBUILTINS)))
+	if ((usepm != 2) && !((on & PM_READONLY) && isset(POSIXBUILTINS)) &&
+	    !(pm->node.flags & PM_DECLARED))
 	    off |= PM_UNSET;
 	pm->node.flags = (pm->node.flags | (on & ~PM_READONLY)) & ~off;
 	if (on & (PM_LEFT | PM_RIGHT_B | PM_RIGHT_Z)) {
@@ -2324,10 +2327,10 @@ typeset_single(char *cname, char *pname, Param pm, int func,
 		    DPUTS(!tdp, "BUG: no join character to update");
 	    }
 	    if (asg->value.scalar &&
-		!(pm = assignsparam(pname, ztrdup(asg->value.scalar), 0)))
+		!(pm = assignsparam(pname, ztrdup(asg->value.scalar), flags)))
 		return NULL;
 	} else if (asg->flags & ASG_ARRAY) {
-	    int flags = (asg->flags & ASG_KEY_VALUE) ? ASSPM_KEY_VALUE : 0;
+	    flags |= (asg->flags & ASG_KEY_VALUE) ? ASSPM_KEY_VALUE : 0;
 	    if (!(pm = assignaparam(pname, asg->value.array ?
 				 zlinklist2array(asg->value.array, 1) :
 				 mkarray(NULL), flags)))
@@ -2358,6 +2361,9 @@ typeset_single(char *cname, char *pname, Param pm, int func,
 	on |= ~off & (PM_READONLY|PM_EXPORTED) & pm->node.flags;
 	/* ...but turn off existing readonly so we can delete it */
 	pm->node.flags &= ~PM_READONLY;
+	/* Hack to force getsparam below to use the reference's own value */
+	if (off & PM_NAMEREF)
+	    pm->node.flags &= ~PM_NAMEREF;
 	/*
 	 * If we're just changing the type, we should keep the
 	 * variable at the current level of localness.
@@ -2371,6 +2377,12 @@ typeset_single(char *cname, char *pname, Param pm, int func,
 	 * implications.)
 	 */
 	if (!ASG_VALUEP(asg) && !((pm->node.flags|on) & (PM_ARRAY|PM_HASHED))) {
+	    /*
+	     * Relying on pname is fundamentally wrong. If the original pm was
+	     * a reference, the resolved pname may refer to a hidden parameter.
+	     * In that case, getsparam wrongly returns the value of the hiding
+	     * parameter.
+	     */
 	    asg->value.scalar = dupstring(getsparam(pname));
 	    asg->flags = 0;
 	}
@@ -3113,42 +3125,6 @@ bin_typeset(char *name, char **argv, LinkList assigns, Options ops, int func)
 		returnval = 1;
 	    }
 	    continue;
-	}
-
-	if (on & PM_NAMEREF) {
-	    if (asg->value.scalar &&
-		((pm = (Param)paramtab->getnode(paramtab, asg->value.scalar)) &&
-		 (pm->node.flags & PM_NAMEREF))) {
-		if (pm->node.flags & PM_SPECIAL) {
-		    zwarnnam(name, "%s: invalid reference", pm->node.nam);
-		    returnval = 1;
-		    continue;
-		}
-	    }
-	    if (hn) {
-		/* namerefs always start over fresh */
-		if (((Param)hn)->level >= locallevel ||
-		    (!(on & PM_LOCAL) && ((Param)hn)->level < locallevel)) {
-		    Param oldpm = (Param)hn;
-		    if (!asg->value.scalar &&
-			PM_TYPE(oldpm->node.flags) == PM_SCALAR &&
-			oldpm->u.str)
-			asg->value.scalar = dupstring(oldpm->u.str);
-		    /* Defer read-only error to typeset_single() */
-		    if (!(hn->flags & PM_READONLY)) {
-			unsetparam_pm(oldpm, 0, 1);
-			hn = NULL;
-		    }
-		}
-		/* Passing a NULL pm to typeset_single() makes the
-		 * nameref read-only before assignment, which breaks
-		 *   typeset -rn ref=var
-		 * so this is special-cased to permit that action
-		 * like assign-at-create for other parameter types.
-		 */
-		if (hn && !(hn->flags & PM_READONLY))
-		    hn = NULL;
-	    }
 	}
 
 	if (!typeset_single(name, asg->name, (Param)hn,
@@ -5814,24 +5790,22 @@ bin_break(char *name, char **argv, UNUSED(Options ops), int func)
 	nump = 1;
     }
 
-    if (nump > 0 && (func == BIN_CONTINUE || func == BIN_BREAK) && num <= 0) {
-	zerrnam(name, "argument is not positive: %d", num);
-	return 1;
-    }
-
     switch (func) {
     case BIN_CONTINUE:
-	if (!loops) {   /* continue is only permitted in loops */
-	    zerrnam(name, "not in for, while, until, select, or repeat loop");
-	    return 1;
-	}
-	contflag = 1; /* FALLTHROUGH */
     case BIN_BREAK:
-	if (!loops) {   /* break is only permitted in loops */
-	    zerrnam(name, "not in for, while, until, select, or repeat loop");
+	num = nump ? num : 1;
+	if (num <= 0) {
+	    zerrnam(name, "argument is not positive: %d", num);
 	    return 1;
 	}
-	breaks = nump ? minimum(num,loops) : 1;
+	if (!loops) {   /* break/continue only permitted in loops */
+	    zerrnam(name, ancestor_loops
+		    ? "not in same subshell as first enclosing loop"
+		    : "not in for, while, until, select, or repeat loop");
+	    return 1;
+	}
+	contflag = func == BIN_CONTINUE;
+	breaks = minimum(num, loops);
 	break;
     case BIN_RETURN:
 	if ((isset(INTERACTIVE) && isset(SHINSTDIN))
